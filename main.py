@@ -48,16 +48,19 @@ class Layer:
 
         self.initialize_randomness()
 
-        self.last_outputs = [0 for _ in range(self.output_node_count)]
+        self.outputs = [0 for _ in range(self.output_node_count)]
+
+        self.weight_cost_gradient = [0 for _ in self.weights]
+        self.bias_cost_gradient = [0 for _ in self.biases]
 
     def calculate_outputs(self, inputs):
         for node_out in range(self.output_node_count):
-            self.last_outputs[node_out] = self.biases[node_out]
+            self.outputs[node_out] = self.biases[node_out]
             for node_in in range(self.input_node_count):
-                self.last_outputs[node_out] += inputs[node_in] * self.weights[node_out * self.input_node_count + node_in]
+                self.outputs[node_out] += inputs[node_in] * self.weights[node_out * self.input_node_count + node_in]
 
-            self.last_outputs[node_out] = self.activation_function(self.last_outputs[node_out])
-        return self.last_outputs
+            self.outputs[node_out] = self.activation_function(self.outputs[node_out])
+        return self.outputs
     
     def initialize_randomness(self):
         self.weights = [random.random() * 2 - 1 for _ in self.weights]
@@ -77,6 +80,14 @@ class Layer:
             raise NotImplementedError
         else:
             raise ValueError(self.activation_function_type)
+    
+    def apply_gradient(self, learn_rate):
+        for node_out in range(self.output_node_count):
+            change = self.bias_cost_gradient[node_out]
+            for node_in in range(self.input_node_count):
+                change += self.weight_cost_gradient[node_out * self.input_node_count + node_in]
+            self.biases[node_out] -= change * learn_rate
+
 
 class NeuralNetwork:
     def __init__(self, layer_sizes):
@@ -93,20 +104,20 @@ class NeuralNetwork:
         if classify:
             self.classify()
 
-        return self.layers[-1].last_outputs
+        return self.layers[-1].outputs
 
     def classify(self):
-        i = index_of_max_value(self.layers[-1].last_outputs)
+        i = index_of_max_value(self.layers[-1].outputs)
 
-        self.layers[-1].last_outputs = [0 for _ in range(self.layer_sizes[-1])]
-        self.layers[-1].last_outputs[i] = 1
+        self.layers[-1].outputs = [0 for _ in range(self.layer_sizes[-1])]
+        self.layers[-1].outputs[i] = 1
 
-        return self.layers[-1].last_outputs
+        return self.layers[-1].outputs
 
     def cost(self, data_input, expected_output):
         self.calculate_outputs(data_input)
         
-        output = self.layers[-1].last_outputs
+        output = self.layers[-1].outputs
 
         cost = 0
         for i in range(self.layer_sizes[-1]):
@@ -121,9 +132,30 @@ class NeuralNetwork:
             total_cost += self.cost(data, expected)
 
         return total_cost / len(data_expected_pairs)
+    
+    def apply_all_gradients(self, learn_rate):
+        for layer in self.layers:
+            layer.apply_gradient(learn_rate)
+
+    def learn(self, training_data, learn_rate):
+        h = 0.001
+        original_cost = self.average_cost(training_data)
+
+        for layer in self.layers:
+            for i in range(len(layer.weights)):
+                layer.weights[i] += h
+                layer.weight_cost_gradient[i] = (self.average_cost(training_data) - original_cost) / h
+                layer.weights[i] -= h
+                
+            for i in range(len(layer.biases)):
+                layer.biases[i] += h
+                layer.bias_cost_gradient[i] = (self.average_cost(training_data) - original_cost) / h
+                layer.biases[i] -= h
+    
+        self.apply_all_gradients(learn_rate)
 
 
-input_data = []
+training_data = []
 for i in range(1000):
     x = random.random()
     y = random.random()
@@ -139,17 +171,19 @@ for i in range(1000):
     # if (x - 700) ** 2 + (y - 100) ** 2 < 150 ** 2:
     #     green = 1
 
-    if (x - 0.6) ** 2 + (y - 0.3) ** 2 < 0.4 ** 2:
+    # if (x - 0.6) ** 2 + (y - 0.3) ** 2 < 0.4 ** 2:
+    if (x - 0) ** 2 + (y - 0) ** 2 < 0.4 ** 2:
         green = 1
     else:
         red = 1
 
-    input_data.append(((x, y), (red, green, blue)))
+    # training_data.append(((x, y), (red, green, blue)))
+    training_data.append(((x, y), (red, green)))
 
 
 
 
-network = NeuralNetwork((2, 3))
+network = NeuralNetwork((2, 2))
 
 # for layer in network.layers:
 #     for i, weight in enumerate(layer.weights):
@@ -178,27 +212,29 @@ def draw():
     transform = lambda x: x * display_size + 50
 
     resolution = 100
-    tile_size = display_size / resolution
+    tile_size = int(display_size / resolution) + 1
 
     for i in range(100):
         for j in range(100):
-            x = i / 100
-            y = j / 100
+            x = (i - 0.5) / 100
+            y = (j - 0.5) / 100
             color = network.calculate_outputs((x, y))
             color = (
                 color[0] * 255 // 2,
                 color[1] * 255 // 2,
-                color[2] * 255 // 2,
+                # color[2] * 255 // 2
+                0
             )
-            pygame.draw.rect(screen, color, (transform(x) - tile_size/2, transform(y) - tile_size/2, tile_size, tile_size))
+            pygame.draw.rect(screen, color, (transform(x), transform(y), tile_size, tile_size))
 
-    for d in input_data:
+    for d in training_data:
         pygame.draw.circle(
             screen,
             (
                 d[1][0] * 255,
                 d[1][1] * 255,
-                d[1][2] * 255
+                # d[1][2] * 255
+                0
             ),
             (
                 transform(d[0][0]),
@@ -210,12 +246,29 @@ def draw():
     pygame.display.flip()
 
 
-print(network.average_cost(input_data))
-draw()
+print("start!")
 
-for i in range(1000):
+clock = pygame.time.Clock()
+while True:
+    print("cost", network.average_cost(training_data))
+
+    draw()
     pygame.event.get()
-    time.sleep(1)
+
+    network.learn(training_data, 0.01)
+
+    print()
+    for layer in network.layers:
+        for w in layer.weight_cost_gradient:
+            print(w)
+        print()
+        for b in layer.bias_cost_gradient:
+            print(b)
+        print()
+    
+    print()
+
+    clock.tick(1)
 
 
 
