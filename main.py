@@ -17,6 +17,42 @@ def index_of_max_value(array):
             best_index = i
     return best_index
 
+
+
+
+
+def node_cost(activation, expected_output):
+    return (activation - expected_output) ** 2
+def node_derivative_cost(activation, expected_output):
+    return 2 * (activation - expected_output)
+
+
+def step_activation(weighted_input):
+    if weighted_input > 0:
+        return 1
+    else:
+        return 0
+def step_derivative_activation(weighted_input):
+    return 0
+
+def sigmoid_activation(weighted_input):
+    return 1 / (1 + math.exp(-weighted_input))
+def sigmoid_derivative_activation(weighted_input):
+    a = sigmoid_activation(weighted_input)
+    return a * (1 - a)
+
+def relu_activation(weighted_input):
+    if weighted_input > 0:
+        return weighted_input
+    else:
+        return 0
+def relu_derivative_activation(weighted_input):
+    if weighted_input > 0:
+        return 1
+    else:
+        return 0
+
+
 class Layer:
     def __init__(self, input_node_count, output_node_count, activation_function_type="Sigmoid"):#, weights, biases):
         self.input_node_count = input_node_count
@@ -25,15 +61,18 @@ class Layer:
         # https://youtu.be/hfMk-kjRv4c?si=29HR3nxxcH9byHm8&t=734
         # there are more options!!
         if activation_function_type == "Step":
-            self.activation_function = lambda x: int(x > 0)
+            self.activation_function = step_activation
+            self.derivative_activation_function = step_derivative_activation
         elif activation_function_type == "Sigmoid":
-            self.activation_function = lambda x: 1 / (1 + math.exp(-x))
+            self.activation_function = sigmoid_activation
+            self.derivative_activation_function = sigmoid_derivative_activation
         elif activation_function_type == "Hyperbolic Tangent":
             raise NotImplementedError
         elif activation_function_type == "SiLU":
             raise NotImplementedError
         elif activation_function_type == "ReLU":
-            self.activation_function = lambda x: max(0, x)
+            self.activation_function = relu_activation
+            self.derivative_activation_function = relu_derivative_activation
         else:
             raise ValueError(activation_function_type)
         self.activation_function_type = activation_function_type
@@ -48,30 +87,32 @@ class Layer:
 
         self.initialize_randomness()
 
-        self.outputs = [0 for _ in range(self.output_node_count)]
+        self.input_activations = [0 for _ in range(self.input_node_count)]
+        self.weighted_inputs = [0 for _ in range(self.output_node_count)]
+        self.output_activations = [0 for _ in range(self.output_node_count)]
 
         self.weight_cost_gradient = [0 for _ in self.weights]
         self.bias_cost_gradient = [0 for _ in self.biases]
 
     def calculate_outputs(self, inputs):
+        self.input_activations = inputs
         for node_out in range(self.output_node_count):
-            self.outputs[node_out] = self.biases[node_out]
+            self.weighted_inputs[node_out] = self.biases[node_out]
             for node_in in range(self.input_node_count):
-                self.outputs[node_out] += inputs[node_in] * self.weights[node_out * self.input_node_count + node_in]
+                self.weighted_inputs[node_out] += inputs[node_in] * self.weights[node_out * self.input_node_count + node_in]
 
-            self.outputs[node_out] = self.activation_function(self.outputs[node_out])
-        return self.outputs
+            self.output_activations[node_out] = self.activation_function(self.output_activations[node_out])
+        return self.output_activations
     
     def initialize_randomness(self):
         self.weights = [random.random() * 2 - 1 for _ in self.weights]
-        self.biases = [random.random() * 2 - 1 for _ in self.weights]
-
+        # self.biases = [random.random() * 2 - 1 for _ in self.weights]
         if self.activation_function_type == "Step":
             raise NotImplementedError
         elif self.activation_function_type == "Sigmoid":
             d = math.sqrt(self.input_node_count)
             self.weights = [x / d for x in self.weights]
-            self.biases = [x / d for x in self.biases]
+            # self.biases = [x / d for x in self.biases]
         elif self.activation_function_type == "Hyperbolic Tangent":
             raise NotImplementedError
         elif self.activation_function_type == "SiLU":
@@ -87,6 +128,41 @@ class Layer:
             for node_in in range(self.input_node_count):
                 change += self.weight_cost_gradient[node_out * self.input_node_count + node_in]
             self.biases[node_out] -= change * learn_rate
+    
+    def calculate_output_layer_node_values(self, expected_output):
+        node_values = []
+        for i in range(self.output_node_count):
+            cost_derivative = self.derivative_activation_function(self.weighted_inputs[i])
+            activation_derivative = node_derivative_cost(self.output_activations[i], expected_output[i])
+            node_values.append(activation_derivative * cost_derivative)
+        return node_values
+    
+    def calculate_hidden_layer_node_values(self, old_layer, old_node_values):
+        new_node_values = []
+
+        for new_node in range(self.output_node_count):
+            new_node_value = 0
+            for old_node in range(old_layer.output_node_count):
+                # how is this a derivative?
+                weighted_input_derivative = old_layer.weights[new_node * old_layer.output_node_count + old_node]
+                new_node_value += weighted_input_derivative * old_node_values[old_node]
+            new_node_value *= self.derivative_activation_function(self.weighted_inputs[new_node])
+            new_node_values.append(new_node_value)
+        
+        return new_node_values
+    
+    def update_gradients(self, node_values):
+        for node_out in range(self.output_node_count):
+            for node_in in range(self.input_node_count):
+                derivative_cost_wrt_weight = self.input_activations[node_in] * node_values[node_out]
+                self.weight_cost_gradient[node_out * self.input_node_count + node_in] += derivative_cost_wrt_weight
+
+            derivative_cost_wrt_bias = 1 * node_values[node_out]
+            self.bias_cost_gradient[node_out] += derivative_cost_wrt_bias
+    
+    def clear_gradients(self):
+        self.weight_cost_gradient = [0 for _ in self.weights]
+        self.bias_cost_gradient = [0 for _ in self.biases]
 
 
 class NeuralNetwork:
@@ -95,6 +171,7 @@ class NeuralNetwork:
         self.layers = []
         for i in range(len(layer_sizes) - 1):
             self.layers.append(Layer(layer_sizes[i], layer_sizes[i + 1]))
+        self.layers[-1] = self.layers[-1]
 
     def calculate_outputs(self, inputs, classify=True):
         inputs = list(inputs)
@@ -104,24 +181,22 @@ class NeuralNetwork:
         if classify:
             self.classify()
 
-        return self.layers[-1].outputs
+        return self.layers[-1].output_activations
 
     def classify(self):
-        i = index_of_max_value(self.layers[-1].outputs)
+        i = index_of_max_value(self.layers[-1].output_activations)
 
-        self.layers[-1].outputs = [0 for _ in range(self.layer_sizes[-1])]
-        self.layers[-1].outputs[i] = 1
+        self.layers[-1].output_activations = [0 for _ in range(self.layer_sizes[-1])]
+        self.layers[-1].output_activations[i] = 1
 
-        return self.layers[-1].outputs
+        return self.layers[-1].output_activations
 
     def cost(self, data_input, expected_output):
         self.calculate_outputs(data_input)
-        
-        output = self.layers[-1].outputs
 
         cost = 0
-        for i in range(self.layer_sizes[-1]):
-            cost += (output[i] - expected_output[i]) ** 2
+        for i, output in enumerate(self.layers[-1].output_activations):
+            cost += node_cost(output, expected_output[i])
 
         return cost
 
@@ -137,7 +212,7 @@ class NeuralNetwork:
         for layer in self.layers:
             layer.apply_gradient(learn_rate)
 
-    def learn(self, training_data, learn_rate):
+    def learn_numeric_method(self, training_data, learn_rate):
         h = 0.001
         original_cost = self.average_cost(training_data)
 
@@ -153,6 +228,35 @@ class NeuralNetwork:
                 layer.biases[i] -= h
     
         self.apply_all_gradients(learn_rate)
+    
+    def learn(self, training_batch, learn_rate):
+        for data_point in training_batch:
+            self.update_all_gradients(data_point)
+        
+        self.apply_all_gradients(learn_rate / len(training_batch))
+
+        self.clear_all_gradients()
+    
+    def update_all_gradients(self, data_expected_pair):
+        data, expected = data_expected_pair
+        self.calculate_outputs(data)
+
+        output_layer = self.layers[-1]
+        node_values = output_layer.calculate_output_layer_node_values(expected)
+        output_layer.update_gradients(node_values)
+
+        for i in range(len(self.layers)-2, -1, -1):
+            hidden_layer = self.layers[i]
+            node_values = hidden_layer.calculate_hidden_layer_node_values(self.layers[i+1], node_values)
+            hidden_layer.update_gradients(node_values)
+    
+    def clear_all_gradients(self):
+        for layer in self.layers:
+            layer.clear_gradients()
+    
+    # def backpropagation(self, training_data, learn_rate):
+    #     for i in range(len(self.layers), 0, -1):
+    #         print(i)
 
 
 training_data = []
@@ -183,7 +287,9 @@ for i in range(1000):
 
 
 
-network = NeuralNetwork((2, 2))
+network = NeuralNetwork((2, 3, 2))
+
+
 
 # for layer in network.layers:
 #     for i, weight in enumerate(layer.weights):
