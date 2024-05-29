@@ -85,8 +85,6 @@ class Layer:
         # node_index: bias
         self.biases = [0 for _ in range(self.output_node_count)]
 
-        self.initialize_randomness()
-
         self.input_activations = [0 for _ in range(self.input_node_count)]
         self.weighted_inputs = [0 for _ in range(self.output_node_count)]
         self.output_activations = [0 for _ in range(self.output_node_count)]
@@ -101,7 +99,7 @@ class Layer:
             for node_in in range(self.input_node_count):
                 self.weighted_inputs[node_out] += inputs[node_in] * self.weights[node_out * self.input_node_count + node_in]
 
-            self.output_activations[node_out] = self.activation_function(self.output_activations[node_out])
+            self.output_activations[node_out] = self.activation_function(self.weighted_inputs[node_out])
         return self.output_activations
     
     def initialize_randomness(self):
@@ -166,12 +164,16 @@ class Layer:
 
 
 class NeuralNetwork:
-    def __init__(self, layer_sizes):
+    def __init__(self, layer_sizes, init_random=True):
         self.layer_sizes = layer_sizes
         self.layers = []
         for i in range(len(layer_sizes) - 1):
             self.layers.append(Layer(layer_sizes[i], layer_sizes[i + 1]))
         self.layers[-1] = self.layers[-1]
+
+        if init_random:
+            for layer in self.layers:
+                layer.initialize_randomness()
 
     def calculate_outputs(self, inputs, classify=True):
         inputs = list(inputs)
@@ -230,13 +232,13 @@ class NeuralNetwork:
         self.apply_all_gradients(learn_rate)
     
     def learn(self, training_batch, learn_rate):
+        self.clear_all_gradients()
+    
         for data_point in training_batch:
             self.update_all_gradients(data_point)
         
         self.apply_all_gradients(learn_rate / len(training_batch))
 
-        self.clear_all_gradients()
-    
     def update_all_gradients(self, data_expected_pair):
         data, expected = data_expected_pair
         self.calculate_outputs(data)
@@ -260,9 +262,12 @@ class NeuralNetwork:
 
 
 training_data = []
-for i in range(1000):
+for i in range(12345):
     x = random.random()
     y = random.random()
+    # x = (i // 100 + 0.5) / 100
+    # y = (i % 100 + 0.5) / 100
+    # if x >= 1: break
 
     red = 0
     green = 0
@@ -276,7 +281,7 @@ for i in range(1000):
     #     green = 1
 
     # if (x - 0.6) ** 2 + (y - 0.3) ** 2 < 0.4 ** 2:
-    if (x - 0) ** 2 + (y - 0) ** 2 < 0.4 ** 2:
+    if (x - 0) ** 2 + (y - 0) ** 2 < 0.6 ** 2:
         green = 1
     else:
         red = 1
@@ -284,47 +289,72 @@ for i in range(1000):
     # training_data.append(((x, y), (red, green, blue)))
     training_data.append(((x, y), (red, green)))
 
-
-
-
 network = NeuralNetwork((2, 3, 2))
 
 
 
 # for layer in network.layers:
 #     for i, weight in enumerate(layer.weights):
-#         layer.weights[i] = random.random() * 2 - 0.5
-
-#         # print(layer.weights[i])
-    
-#     # print()
-
+#         print(layer.weights[i])
+#     print()
 #     for i, bias in enumerate(layer.biases):
-#         layer.biases[i] = random.random() * 2 - 0.5
+#         print(layer.biases[i])
 
-#         # print(layer.biases[i])
+# print()
 
+# # first point
+# xy = (
+#     0.5 / 10,
+#     0.5 / 10
+# )
+# print(xy)
+# print(network.calculate_outputs(xy))
+# print(network.layers[-1].weighted_inputs)
+# print(network.layers[-1].output_activations)
+
+
+# input()
+
+
+training_batch_size = 10000
+training_batch_index = 0
+training_batch = []
+def next_training_batch():
+    global training_batch_size, training_batch_index, training_batch
+
+    # print(training_batch_index)
+
+    assert training_batch_size <= len(training_data)
+
+    training_batch = training_data[training_batch_index : training_batch_index + training_batch_size]
+    
+    training_batch_index += training_batch_size
+    training_batch_index %= len(training_data)
+
+    if len(training_batch) < training_batch_size:
+        next_training_batch()
+next_training_batch()
 
 
 pygame.init()
-screen = pygame.display.set_mode((700, 700))
+screen = pygame.display.set_mode((1000, 700))
 
 def draw():
     screen.fill((128, 128, 128))
 
     screen_size = screen.get_rect()
 
-    display_size = min(screen_size.w, screen_size.h) - 100
-    transform = lambda x: x * display_size + 50
+    display_size = screen_size.h - 20
+    transform = lambda x: x * display_size + 10
 
     resolution = 100
     tile_size = int(display_size / resolution) + 1
 
     for i in range(100):
         for j in range(100):
-            x = (i - 0.5) / 100
-            y = (j - 0.5) / 100
-            color = network.calculate_outputs((x, y))
+            x = i / 100
+            y = j / 100
+            color = network.calculate_outputs((x + (0.5/100), y + (0.5/100)))
             color = (
                 color[0] * 255 // 2,
                 color[1] * 255 // 2,
@@ -333,7 +363,7 @@ def draw():
             )
             pygame.draw.rect(screen, color, (transform(x), transform(y), tile_size, tile_size))
 
-    for d in training_data:
+    for d in training_batch:
         pygame.draw.circle(
             screen,
             (
@@ -346,35 +376,50 @@ def draw():
                 transform(d[0][0]),
                 transform(d[0][1])
             ),
-            5
+            1
         )
+    
+    pos = [display_size + 20, 10]
+
+    def draw_text(pos, txt):
+        font = pygame.font.Font("freesansbold.ttf", 20)
+        text = font.render(txt, True, "white")
+        screen.blit(text, pos)
+        pos[1] += 20
+    
+    draw_text(pos, f"Cost: {network.average_cost(training_data)}")
 
     pygame.display.flip()
 
 
 print("start!")
 
-clock = pygame.time.Clock()
+# clock = pygame.time.Clock()
 while True:
-    print("cost", network.average_cost(training_data))
-
     draw()
     pygame.event.get()
-
-    network.learn(training_data, 0.01)
-
-    print()
-    for layer in network.layers:
-        for w in layer.weight_cost_gradient:
-            print(w)
-        print()
-        for b in layer.bias_cost_gradient:
-            print(b)
-        print()
-    
     print()
 
-    clock.tick(1)
+    next_draw = time.time() + 0.2
+    while time.time() < next_draw:
+
+        network.learn(training_batch, 0.001)
+        print("cost", network.average_cost(training_batch))
+        next_training_batch()
+
+    # print()
+    # for layer in network.layers:
+    #     # for w in layer.weight_cost_gradient:
+    #     for w in layer.weights:
+    #         print(w)
+    #     print()
+    #     # for b in layer.bias_cost_gradient:
+    #     for b in layer.biases:
+    #         print(b)
+    #     print()
+    # print()
+
+    # clock.tick(20)
 
 
 
